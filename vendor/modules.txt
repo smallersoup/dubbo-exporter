@@ -1,0 +1,9 @@
+# github.com/reiver/go-oi v1.0.0
+## explicit
+github.com/reiver/go-oi
+# github.com/reiver/go-telnet v0.0.0-20180421082511-9ff0b2ab096e
+## explicit
+github.com/reiver/go-telnet
+# k8s.io/klog v1.0.0
+## explicit
+k8s.io/klog
