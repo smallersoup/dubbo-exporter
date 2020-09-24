@@ -1,33 +1,25 @@
 package main
 
 import (
-	"github.com/reiver/go-telnet"
-	"k8s.io/klog"
-	"regexp"
+	"flag"
+	"github.com/xuchaoi/dubbo-exporter/cmd/dubbo-exporter/app"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/component-base/logs"
+	"os"
+	"runtime"
 )
 
-const TestDubboServer = "localhost:20880"
+func main() {
+	logs.InitLogs()
+	defer logs.FlushLogs()
 
-func main()  {
-	conn, err := telnet.DialTo(TestDubboServer)
-	if err != nil {
-		klog.Error(err)
+	if len(os.Getenv("GOMAXPROCS")) == 0 {
+		runtime.GOMAXPROCS(runtime.NumCPU())
 	}
 
-	conn.Write([]byte("status -l \n"))
-	b := make([]byte, 400)
-	_, err = conn.Read(b)
-	if err != nil {
-		klog.Error(err)
+	cmd := app.NewCommandStartExporterServer(wait.NeverStop)
+	cmd.Flags().AddGoFlagSet(flag.CommandLine)
+	if err := cmd.Execute(); err != nil {
+		panic(err)
 	}
-	klog.Infof("conn: %s", string(b))
-
-	tmp1 := b
-	tmp2 := b
-	r1, _ := regexp.Compile("max:[\\d]+")
-	tmpPoolMax := r1.Find(tmp1)
-	r2, _ := regexp.Compile("active:[\\d]+")
-	tmpPoolActive := r2.Find(tmp2)
-	klog.Infof("Dubbo metrics data: %s, %s", tmpPoolMax, tmpPoolActive)
-
 }

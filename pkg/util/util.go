@@ -14,17 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package pod
+package util
 
 import (
 	"fmt"
 	"time"
-
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	"k8s.io/kubernetes/pkg/features"
 )
 
 // FindPort locates the container port for the given pod and portName.  If the
@@ -48,174 +45,6 @@ func FindPort(pod *v1.Pod, svcPort *v1.ServicePort) (int, error) {
 	}
 
 	return 0, fmt.Errorf("no suitable port for manifest: %s", pod.UID)
-}
-
-// ContainerVisitor is called with each container spec, and returns true
-// if visiting should continue.
-type ContainerVisitor func(container *v1.Container) (shouldContinue bool)
-
-// VisitContainers invokes the visitor function with a pointer to the container
-// spec of every container in the given pod spec. If visitor returns false,
-// visiting is short-circuited. VisitContainers returns true if visiting completes,
-// false if visiting was short-circuited.
-func VisitContainers(podSpec *v1.PodSpec, visitor ContainerVisitor) bool {
-	for i := range podSpec.InitContainers {
-		if !visitor(&podSpec.InitContainers[i]) {
-			return false
-		}
-	}
-	for i := range podSpec.Containers {
-		if !visitor(&podSpec.Containers[i]) {
-			return false
-		}
-	}
-	if utilfeature.DefaultFeatureGate.Enabled(features.EphemeralContainers) {
-		for i := range podSpec.EphemeralContainers {
-			if !visitor((*v1.Container)(&podSpec.EphemeralContainers[i].EphemeralContainerCommon)) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// Visitor is called with each object name, and returns true if visiting should continue
-type Visitor func(name string) (shouldContinue bool)
-
-// VisitPodSecretNames invokes the visitor function with the name of every secret
-// referenced by the pod spec. If visitor returns false, visiting is short-circuited.
-// Transitive references (e.g. pod -> pvc -> pv -> secret) are not visited.
-// Returns true if visiting completed, false if visiting was short-circuited.
-func VisitPodSecretNames(pod *v1.Pod, visitor Visitor) bool {
-	for _, reference := range pod.Spec.ImagePullSecrets {
-		if !visitor(reference.Name) {
-			return false
-		}
-	}
-	VisitContainers(&pod.Spec, func(c *v1.Container) bool {
-		return visitContainerSecretNames(c, visitor)
-	})
-	var source *v1.VolumeSource
-
-	for i := range pod.Spec.Volumes {
-		source = &pod.Spec.Volumes[i].VolumeSource
-		switch {
-		case source.AzureFile != nil:
-			if len(source.AzureFile.SecretName) > 0 && !visitor(source.AzureFile.SecretName) {
-				return false
-			}
-		case source.CephFS != nil:
-			if source.CephFS.SecretRef != nil && !visitor(source.CephFS.SecretRef.Name) {
-				return false
-			}
-		case source.Cinder != nil:
-			if source.Cinder.SecretRef != nil && !visitor(source.Cinder.SecretRef.Name) {
-				return false
-			}
-		case source.FlexVolume != nil:
-			if source.FlexVolume.SecretRef != nil && !visitor(source.FlexVolume.SecretRef.Name) {
-				return false
-			}
-		case source.Projected != nil:
-			for j := range source.Projected.Sources {
-				if source.Projected.Sources[j].Secret != nil {
-					if !visitor(source.Projected.Sources[j].Secret.Name) {
-						return false
-					}
-				}
-			}
-		case source.RBD != nil:
-			if source.RBD.SecretRef != nil && !visitor(source.RBD.SecretRef.Name) {
-				return false
-			}
-		case source.Secret != nil:
-			if !visitor(source.Secret.SecretName) {
-				return false
-			}
-		case source.ScaleIO != nil:
-			if source.ScaleIO.SecretRef != nil && !visitor(source.ScaleIO.SecretRef.Name) {
-				return false
-			}
-		case source.ISCSI != nil:
-			if source.ISCSI.SecretRef != nil && !visitor(source.ISCSI.SecretRef.Name) {
-				return false
-			}
-		case source.StorageOS != nil:
-			if source.StorageOS.SecretRef != nil && !visitor(source.StorageOS.SecretRef.Name) {
-				return false
-			}
-		case source.CSI != nil:
-			if source.CSI.NodePublishSecretRef != nil && !visitor(source.CSI.NodePublishSecretRef.Name) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func visitContainerSecretNames(container *v1.Container, visitor Visitor) bool {
-	for _, env := range container.EnvFrom {
-		if env.SecretRef != nil {
-			if !visitor(env.SecretRef.Name) {
-				return false
-			}
-		}
-	}
-	for _, envVar := range container.Env {
-		if envVar.ValueFrom != nil && envVar.ValueFrom.SecretKeyRef != nil {
-			if !visitor(envVar.ValueFrom.SecretKeyRef.Name) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// VisitPodConfigmapNames invokes the visitor function with the name of every configmap
-// referenced by the pod spec. If visitor returns false, visiting is short-circuited.
-// Transitive references (e.g. pod -> pvc -> pv -> secret) are not visited.
-// Returns true if visiting completed, false if visiting was short-circuited.
-func VisitPodConfigmapNames(pod *v1.Pod, visitor Visitor) bool {
-	VisitContainers(&pod.Spec, func(c *v1.Container) bool {
-		return visitContainerConfigmapNames(c, visitor)
-	})
-	var source *v1.VolumeSource
-	for i := range pod.Spec.Volumes {
-		source = &pod.Spec.Volumes[i].VolumeSource
-		switch {
-		case source.Projected != nil:
-			for j := range source.Projected.Sources {
-				if source.Projected.Sources[j].ConfigMap != nil {
-					if !visitor(source.Projected.Sources[j].ConfigMap.Name) {
-						return false
-					}
-				}
-			}
-		case source.ConfigMap != nil:
-			if !visitor(source.ConfigMap.Name) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func visitContainerConfigmapNames(container *v1.Container, visitor Visitor) bool {
-	for _, env := range container.EnvFrom {
-		if env.ConfigMapRef != nil {
-			if !visitor(env.ConfigMapRef.Name) {
-				return false
-			}
-		}
-	}
-	for _, envVar := range container.Env {
-		if envVar.ValueFrom != nil && envVar.ValueFrom.ConfigMapKeyRef != nil {
-			if !visitor(envVar.ValueFrom.ConfigMapKeyRef.Name) {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 // GetContainerStatus extracts the status of container "name" from "statuses".
