@@ -1,0 +1,3 @@
+From busybox
+ADD dubbo_exporter /usr/bin/
+RUN chmod +x /usr/bin/dubbo_exporter
